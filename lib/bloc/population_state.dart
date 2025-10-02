@@ -14,7 +14,7 @@ class PopulationLoaded extends PopulationState {
   final List<PopulationData> data;
   final Map<String, Map<String, double>> continentPopulation;
   final double correlation;
-  final Map<String, double> continentAverages;
+  final Map<String,Map<String, double>> continentAverages;
   PopulationLoaded({
     required this.data,
     required this.continentPopulation,

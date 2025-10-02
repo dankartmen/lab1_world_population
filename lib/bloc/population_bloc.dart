@@ -170,19 +170,47 @@ class PopulationBloc extends Bloc<PopulationEvent, PopulationState> {
   }
 
 
-  Map<String, double> _calculateContinentAverages(List<PopulationData> data) {
-    Map<String, List<double>> continentPopulations = {};
+  Map<String,Map<String, double>> _calculateContinentAverages(List<PopulationData> data) {
+    Map<String,Map<String,List<double>>> continentPopulations = {};
     
+    // Определяем все доступные годы
+    final years = [
+      '2022', '2020', '2015', '2010', '2000', '1990', '1980', '1970'
+    ];
+
+    // Собираем данные по каждому году для каждого континента
     for (var item in data) {
-      if (item.population2022 != null) {
-        continentPopulations.putIfAbsent(item.continent!, () => []);
-        continentPopulations[item.continent]!.add(item.population2022!);
+      for (var year in years) {
+        double? population;
+        
+        // Получаем значение популяции для текущего года
+        switch (year) {
+          case '2022': population = item.population2022; break;
+          case '2020': population = item.population2020; break;
+          case '2015': population = item.population2015; break;
+          case '2010': population = item.population2010; break;
+          case '2000': population = item.population2000; break;
+          case '1990': population = item.population1990; break;
+          case '1980': population = item.population1980; break;
+          case '1970': population = item.population1970; break;
+        }
+
+        if (population != null && item.continent != null) {
+          continentPopulations
+            .putIfAbsent(item.continent!, () => {})
+            .putIfAbsent(year, () => [])
+            .add(population);
+        }
       }
     }
     
-    Map<String, double> averages = {};
-    continentPopulations.forEach((continent, populations) {
-      averages[continent] = populations.reduce((a, b) => a + b) / populations.length;
+    Map<String,Map<String, double>> averages = {};
+    continentPopulations.forEach((continent, yearData) {
+      Map<String, double> continentAverages = {};
+      yearData.forEach((year,populations) {
+        continentAverages[year] = populations.reduce((a, b) => a + b) / populations.length;
+      });
+      averages[continent] = continentAverages;
     });
     
     return averages;
