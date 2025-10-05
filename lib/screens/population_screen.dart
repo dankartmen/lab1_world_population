@@ -8,6 +8,7 @@ import '../bloc/population_state.dart';
 import '../models/country_population_data.dart';
 import '../models/interactive_spots.dart';
 import '../models/population_data.dart';
+import '../models/histogram_feature.dart';
 
 class PopulationScreen extends StatelessWidget {
   const PopulationScreen({super.key});
@@ -42,6 +43,10 @@ class PopulationScreen extends StatelessWidget {
                     _buildPopulationHistogram(state),
                     // График среднего населения по континентам
                     _buildContinentChart(state),
+                    // Тепловая карта корреляции
+                    _buildCorrelationHeatmap(state),
+                    // Гистограммы признаков
+                    _buildFeatureHistograms(state)
                   ],
                 ),
               );
@@ -56,6 +61,280 @@ class PopulationScreen extends StatelessWidget {
   }
 
   
+
+  Widget _buildFeatureHistograms(PopulationLoaded state) {
+    return Card(
+      margin: EdgeInsets.all(16),
+      child: Padding(
+        padding: EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            Text(
+              'Гистограммы признаков',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 16),
+            _buildHistogramsContent(state.data),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHistogramsContent(List<PopulationData> data) {
+    final features = [
+      HistogramFeature('Население 2022', 'population2022', 1e6, 'млн'),
+      HistogramFeature('Население 2020', 'population2020', 1e6, 'млн'),
+      HistogramFeature('Население 2015', 'population2015', 1e6, 'млн'),
+      HistogramFeature('Площадь', 'area', 1e3, 'тыс. км²'),
+      HistogramFeature('Плотность', 'density', 1, 'чел/км²'),
+      HistogramFeature('Темп роста', 'growthRate', 1, ''),
+      HistogramFeature('Доля мира', 'worldPopulationPercentage', 1, '%'),
+    ];
+
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: NeverScrollableScrollPhysics(),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 4,
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
+        childAspectRatio: 1.2,
+      ),
+      itemCount: features.length,
+      itemBuilder: (context, index) {
+        return _buildSingleHistogram(data, features[index]);
+      },
+    );
+  }
+  
+  Widget _buildSingleHistogram(List<PopulationData> data, HistogramFeature feature) {
+    final values = _extractValues(data, feature.field, feature.divisor);
+    
+    if (values.isEmpty) {
+      return Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey[300]!),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Center(child: Text('Нет данных')),
+      );
+    }
+
+    final bins = _createHistogramBins(values, 10);
+    final maxCount = bins.values.reduce((a, b) => a > b ? a : b).toDouble();
+
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey[300]!),
+        borderRadius: BorderRadius.circular(8),
+        color: Colors.grey[50],
+      ),
+      padding: EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            feature.title,
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          SizedBox(height: 8),
+          Expanded(
+            child: BarChart(
+              BarChartData(
+                alignment: BarChartAlignment.spaceAround,
+                barGroups: bins.entries.map((entry) {
+                  return BarChartGroupData(
+                    x: entry.key,
+                    barRods: [
+                      BarChartRodData(
+                        toY: entry.value.toDouble(),
+                        color: _getHistogramColor(entry.key, bins.length),
+                        width: 16,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ],
+                  );
+                }).toList(),
+                titlesData: FlTitlesData(
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 25,
+                      getTitlesWidget: (value, meta) {
+                        final binIndex = value.toInt();
+                        if (binIndex < bins.length) {
+                          return SideTitleWidget(
+                            meta: meta,
+                            child: Text(
+                              _getBinLabel(binIndex, bins.length, values, feature.unit),
+                              style: TextStyle(fontSize: 8),
+                            ),
+                          );
+                        }
+                        return Text('');
+                      },
+                    ),
+                  ),
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 30,
+                      interval: _calculateHistogramInterval(maxCount),
+                      getTitlesWidget: (value, meta) => SideTitleWidget(
+                        meta: meta,
+                        child: Text(
+                          value.toInt().toString(),
+                          style: TextStyle(fontSize: 8),
+                        ),
+                      ),
+                    ),
+                  ),
+                  rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                ),
+                gridData: FlGridData(show: true),
+                borderData: FlBorderData(show: true),
+                barTouchData: BarTouchData(
+                  enabled: true,
+                  touchTooltipData: BarTouchTooltipData(
+                    getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                      final count = rod.toY.toInt();
+                      final binLabel = _getBinLabel(groupIndex, bins.length, values, feature.unit);
+                      return BarTooltipItem(
+                        '$binLabel\nКоличество: $count',
+                        TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 10,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                maxY: maxCount * 1.1,
+                minY: 0,
+              ),
+            ),
+          ),
+          SizedBox(height: 4),
+          Text(
+            'Всего: ${values.length} стран',
+            style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<double> _extractValues(List<PopulationData> data, String field, double divisor) {
+    List<double> values = [];
+    int skipped = 0;
+    List<String> skippedCountries = [];
+
+    for (var item in data) {
+      final value = _getFieldValueForHistogram(item, field);
+      
+      if (value != null && value > 0 && value.isFinite) {
+        values.add(value / divisor);
+      } else {
+        skipped++;
+        if (item.country != null) {
+          skippedCountries.add('${item.country} (value: $value)');
+        }
+      }
+    }
+
+    debugPrint('Поле: $field - Использовано: ${values.length}, Пропущено: $skipped');
+    if (skippedCountries.isNotEmpty) {
+      debugPrint('Пропущенные страны: $skippedCountries');
+    }
+
+    return values;
+  }
+  double? _getFieldValueForHistogram(PopulationData item, String field) {
+    switch (field) {
+      case 'population2022': return item.population2022;
+      case 'population2020': return item.population2020;
+      case 'population2015': return item.population2015;
+      case 'population2010': return item.population2010;
+      case 'population2000': return item.population2000;
+      case 'population1990': return item.population1990;
+      case 'population1980': return item.population1980;
+      case 'population1970': return item.population1970;
+      case 'area': return item.area;
+      case 'density': return item.density;
+      case 'growthRate': return item.growthRate != null ? (item.growthRate! - 1) * 100 : null;
+      case 'worldPopulationPercentage': return item.worldPopulationPercentage;
+      default: return null;
+    }
+  }
+
+  Map<int, int> _createHistogramBins(List<double> values, int binCount) {
+    if (values.isEmpty) return {};
+
+    values.sort();
+    final minValue = values.first;
+    final maxValue = values.last;
+    final binWidth = (maxValue - minValue) / binCount;
+
+    Map<int, int> bins = {};
+    for (int i = 0; i < binCount; i++) {
+      bins[i] = 0;
+    }
+
+    for (double value in values) {
+      int binIndex = ((value - minValue) / binWidth).floor();
+      if (binIndex >= binCount) binIndex = binCount - 1;
+      bins[binIndex] = bins[binIndex]! + 1;
+    }
+
+    return bins;
+  }
+
+  String _getBinLabel(int binIndex, int totalBins, List<double> values, String unit) {
+    if (values.isEmpty) return '';
+
+    values.sort();
+    final minValue = values.first;
+    final maxValue = values.last;
+    final binWidth = (maxValue - minValue) / totalBins;
+
+    final start = minValue + binIndex * binWidth;
+    final end = start + binWidth;
+
+    if (unit.isEmpty) {
+      return '${start.toStringAsFixed(1)}';
+    } else {
+      return '${start.toStringAsFixed(0)}';
+    }
+  }
+
+  double _calculateHistogramInterval(double maxCount) {
+    if (maxCount > 100) return 50;
+    if (maxCount > 50) return 20;
+    if (maxCount > 20) return 10;
+    if (maxCount > 10) return 5;
+    return 2;
+  }
+
+  Color _getHistogramColor(int binIndex, int totalBins) {
+    final colors = [
+      Colors.blue[300]!,
+      Colors.blue[400]!,
+      Colors.blue[500]!,
+      Colors.blue[600]!,
+      Colors.blue[700]!,
+      Colors.blue[800]!,
+      Colors.blue[900]!,
+      Colors.purple[400]!,
+      Colors.purple[600]!,
+      Colors.purple[800]!,
+    ];
+    return colors[binIndex % colors.length];
+  }
 
   Widget _buildStatistics(PopulationLoaded state) {
     return Card(
@@ -437,6 +716,301 @@ class PopulationScreen extends StatelessWidget {
     if (maxY > 100) return 25;
     if (maxY > 50) return 10;
     return 5;
+  }
+
+  Widget _buildHeatmapContent(Map<String, Map<String, double>> matrix) {
+  final labels = matrix.keys.toList();
+  
+  return SingleChildScrollView(
+    scrollDirection: Axis.horizontal,
+    child: SingleChildScrollView(
+      scrollDirection: Axis.vertical,
+      child: Container(
+        padding: EdgeInsets.all(8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // Заголовки столбцов
+            Row(
+              children: [
+                SizedBox(width: 80), // Место для заголовков строк
+                ...labels.map((label) => 
+                  Container(
+                    width: 60,
+                    child: Text(
+                      label,
+                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                      textAlign: TextAlign.center,
+                    ),
+                  )
+                ).toList(),
+              ],
+            ),
+            SizedBox(height: 8),
+            // Сама тепловая карта
+            ...labels.asMap().entries.map((rowEntry) {
+              final rowIndex = rowEntry.key;
+              final rowLabel = rowEntry.value;
+              
+              return Row(
+                children: [
+                  // Заголовок строки
+                  Container(
+                    width: 80,
+                    child: Text(
+                      rowLabel,
+                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                      textAlign: TextAlign.right,
+                    ),
+                  ),
+                  // Ячейки тепловой карты
+                  ...labels.asMap().entries.map((colEntry) {
+                    final colIndex = colEntry.key;
+                    final colLabel = colEntry.value;
+                    final correlation = matrix[rowLabel]![colLabel]!;
+                    
+                    return _buildHeatmapCell(correlation, rowIndex, colIndex);
+                  }).toList(),
+                ],
+              );
+            }).toList(),
+            SizedBox(height: 16),
+            // Легенда
+            _buildHeatmapLegend(),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+Widget _buildHeatmapCell(double correlation, int row, int col) {
+  // Определяем цвет на основе значения корреляции
+  Color color;
+  if (correlation > 0.7) {
+    color = Colors.red[900]!;
+  } else if (correlation > 0.5) {
+    color = Colors.red[700]!;
+  } else if (correlation > 0.3) {
+    color = Colors.red[400]!;
+  } else if (correlation > 0.1) {
+    color = Colors.red[200]!;
+  } else if (correlation > -0.1) {
+    color = Colors.grey[200]!;
+  } else if (correlation > -0.3) {
+    color = Colors.blue[200]!;
+  } else if (correlation > -0.5) {
+    color = Colors.blue[400]!;
+  } else if (correlation > -0.7) {
+    color = Colors.blue[700]!;
+  } else {
+    color = Colors.blue[900]!;
+  }
+
+  return Container(
+    width: 60,
+    height: 40,
+    decoration: BoxDecoration(
+      color: color,
+      border: Border.all(color: Colors.white, width: 1),
+    ),
+    child: Center(
+      child: Text(
+        correlation.toStringAsFixed(2),
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.bold,
+          color: correlation.abs() > 0.3 ? Colors.white : Colors.black,
+        ),
+      ),
+    ),
+  );
+}
+
+Widget _buildHeatmapLegend() {
+  return Column(
+    children: [
+      Text(
+        'Легенда корреляции',
+        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+      ),
+      SizedBox(height: 8),
+      Center( // Просто оборачиваем в Center
+        child: Wrap(
+          spacing: 8,
+          children: [
+            _buildLegendItem('Сильная отриц.', Colors.blue[900]!),
+            _buildLegendItem('Средняя отриц.', Colors.blue[400]!),
+            _buildLegendItem('Слабая отриц.', Colors.blue[200]!),
+            _buildLegendItem('Нет связи', Colors.grey[200]!),
+            _buildLegendItem('Слабая полож.', Colors.red[200]!),
+            _buildLegendItem('Средняя полож.', Colors.red[400]!),
+            _buildLegendItem('Сильная полож.', Colors.red[900]!),
+          ],
+        ),
+      ),
+    ],
+  );
+}
+
+Widget _buildLegendItem(String text, Color color) {
+  return Padding(
+    padding: EdgeInsets.symmetric(horizontal: 4),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 12,
+          height: 12,
+          color: color,
+        ),
+        SizedBox(width: 4),
+        Text(
+          text,
+          style: TextStyle(fontSize: 8),
+        ),
+      ],
+    ),
+  );
+}
+
+  Widget _buildCorrelationHeatmap(PopulationLoaded state) {
+    // Создаем матрицу корреляции
+    final correlationMatrix = _calculateCorrelationMatrix(state.data);
+    
+    return Card(
+      margin: EdgeInsets.all(16),
+      child: Padding(
+        padding: EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            Text(
+              'Тепловая карта по матрице корреляции',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 16),
+            _buildHeatmapContent(correlationMatrix),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Map<String, Map<String, double>> _calculateCorrelationMatrix(List<PopulationData> data) {
+    // Определяем числовые поля для корреляции
+    final numericFields = [
+      'rank',
+      'population2022',
+      'population2020', 
+      'population2015',
+      'population2010',
+      'population2000',
+      'population1990',
+      'population1980',
+      'population1970',
+      'area',
+      'density',
+      'growthRate',
+      'worldPopulationPercentage'
+    ];
+
+    final fieldNames = {
+      'rank': 'Rank',
+      'population2022': '2022',
+      'population2020': '2020',
+      'population2015': '2015',
+      'population2010': '2010',
+      'population2000': '2000',
+      'population1990': '1990',
+      'population1980': '1980',
+      'population1970': '1970',
+      'area': 'Площадь',
+      'density': 'Плотность',
+      'growthRate': 'Рост',
+      'worldPopulationPercentage': '% мира'
+    };
+
+    Map<String, Map<String, double>> matrix = {};
+
+    // Инициализируем матрицу
+    for (var field1 in numericFields) {
+      matrix[fieldNames[field1]!] = {};
+      for (var field2 in numericFields) {
+        matrix[fieldNames[field1]!]![fieldNames[field2]!] = 0.0;
+      }
+    }
+
+    // Вычисляем корреляции
+    for (var field1 in numericFields) {
+      for (var field2 in numericFields) {
+        final correlation = _calculateFieldCorrelation(data, field1, field2);
+        matrix[fieldNames[field1]!]![fieldNames[field2]!] = correlation;
+      }
+    }
+
+    return matrix;
+  }
+
+  double _calculateFieldCorrelation(List<PopulationData> data, String field1, String field2) {
+    List<double> values1 = [];
+    List<double> values2 = [];
+
+    // Собираем пары значений
+    for (var item in data) {
+      final value1 = _getFieldValue(item, field1);
+      final value2 = _getFieldValue(item, field2);
+      
+      if (value1 != null && value2 != null) {
+        values1.add(value1);
+        values2.add(value2);
+      }
+    }
+
+    if (values1.isEmpty || values2.isEmpty) return 0.0;
+    if (values1.length < 2) return 0.0;
+    return _calculatePearsonCorrelation(values1, values2);
+  }
+
+  double? _getFieldValue(PopulationData item, String field) {
+    switch (field) {
+      case 'rank': return item.rank?.toDouble();
+      case 'population2022': return item.population2022;
+      case 'population2020': return item.population2020;
+      case 'population2015': return item.population2015;
+      case 'population2010': return item.population2010;
+      case 'population2000': return item.population2000;
+      case 'population1990': return item.population1990;
+      case 'population1980': return item.population1980;
+      case 'population1970': return item.population1970;
+      case 'area': return item.area;
+      case 'density': return item.density;
+      case 'growthRate': return item.growthRate;
+      case 'worldPopulationPercentage': return item.worldPopulationPercentage;
+      default: return null;
+    }
+  }
+
+  double _calculatePearsonCorrelation(List<double> x, List<double> y) {
+    if (x.length != y.length) return 0.0;
+
+    final n = x.length;
+    double sumX = 0.0, sumY = 0.0, sumXY = 0.0;
+    double sumX2 = 0.0, sumY2 = 0.0;
+
+    for (int i = 0; i < n; i++) {
+      sumX += x[i];
+      sumY += y[i];
+      sumXY += x[i] * y[i];
+      sumX2 += x[i] * x[i];
+      sumY2 += y[i] * y[i];
+    }
+
+    final numerator = n * sumXY - sumX * sumY;
+    final denominator = sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+
+    if (denominator == 0) return 0.0;
+    
+    return numerator / denominator;
   }
 
   Widget _buildPopulationHistogram(PopulationLoaded state) {
