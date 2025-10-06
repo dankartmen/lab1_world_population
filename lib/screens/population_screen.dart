@@ -9,6 +9,8 @@ import '../models/country_population_data.dart';
 import '../models/interactive_spots.dart';
 import '../models/population_data.dart';
 import '../models/histogram_feature.dart';
+import '../models/year_data.dart';
+import '../widgets/box_plot_chart.dart';
 
 class PopulationScreen extends StatelessWidget {
   const PopulationScreen({super.key});
@@ -46,7 +48,9 @@ class PopulationScreen extends StatelessWidget {
                     // Тепловая карта корреляции
                     _buildCorrelationHeatmap(state),
                     // Гистограммы признаков
-                    _buildFeatureHistograms(state)
+                    _buildFeatureHistograms(state),
+                    // ящик с усами
+                    _buildPopulationBoxPlot(state),
                   ],
                 ),
               );
@@ -60,8 +64,85 @@ class PopulationScreen extends StatelessWidget {
     );
   }
 
-  
+  Widget _buildPopulationBoxPlot(PopulationLoaded state) {
+    return Card(
+      margin: EdgeInsets.all(16),
+      child: Padding(
+        padding: EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            Text(
+              'Ящик с усами: Население стран по годам',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Распределение населения по годам (в миллионах)',
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            ),
+            SizedBox(height: 16),
+            SizedBox(
+              height: 400,
+              child: _buildBoxPlotContent(state.data),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
+  Widget _buildBoxPlotContent(List<PopulationData> data) {
+    final years = [
+      YearData('1970', (item) => item.population1970),
+      YearData('1980', (item) => item.population1980),
+      YearData('1990', (item) => item.population1990),
+      YearData('2000', (item) => item.population2000),
+      YearData('2010', (item) => item.population2010),
+      YearData('2015', (item) => item.population2015),
+      YearData('2020', (item) => item.population2020),
+      YearData('2022', (item) => item.population2022),
+    ];
+
+    // Собираем данные для каждого года
+    final boxPlotData = years.map((yearData) {
+      final values = _extractPopulationValues(data, yearData.extractor);
+      return BoxPlotDataSet(yearData.year, values);
+    }).toList();
+
+    return BoxPlotChart(
+      BoxPlotChartData(
+        boxPlots: boxPlotData,
+        minY: 0,
+        maxY: _calculateBoxPlotMaxY(boxPlotData),
+      ),
+    );
+  }
+
+  List<double> _extractPopulationValues(List<PopulationData> data, double? Function(PopulationData) extractor) {
+    final values = data
+        .map(extractor)
+        .where((value) => value != null && value > 0)
+        .map((value) => value! / 1e6) // Конвертируем в миллионы
+        .toList();
+    
+    values.sort();
+    return values;
+  }
+
+  double _calculateBoxPlotMaxY(List<BoxPlotDataSet> dataSets) {
+    if (dataSets.isEmpty) return 100;
+    
+    double maxValue = 0;
+    for (final dataSet in dataSets) {
+      if (dataSet.outliers.isNotEmpty) {
+        final maxOutlier = dataSet.outliers.reduce((a, b) => a > b ? a : b);
+        maxValue = max(maxValue, maxOutlier);
+      }
+      maxValue = max(maxValue, dataSet.max);
+    }
+    
+    return maxValue * 1.1; // Добавляем 10% отступа
+  }
   Widget _buildFeatureHistograms(PopulationLoaded state) {
     return Card(
       margin: EdgeInsets.all(16),
@@ -456,12 +537,12 @@ class PopulationScreen extends StatelessWidget {
     final interactiveSpots = state.data.where((e) => 
       e.area != null && 
       e.area! > 100 && 
-      e.area! < 1000000 &&
+      e.area! < 100000000 &&
       e.growthRate != null &&
       e.population2022 != null
     ).map((e) => InteractiveSpot(
       spot: ScatterSpot(
-        e.area! / 1000, // в тысячах км²
+        e.area! / 20000, // в  20 тысячах км²
         (e.growthRate! - 1) * 100, // в процентах
       ),
       countryName: e.country!,
@@ -534,8 +615,8 @@ class PopulationScreen extends StatelessWidget {
                       sideTitles: SideTitles(
                         showTitles: true,
                         reservedSize: 40,
-                        interval: 200,
-                        getTitlesWidget: (value, meta) => Text('${value.toInt()}k км²'),
+                        interval: 50,
+                        getTitlesWidget: (value, meta) => Text('${(value * 20 / 1000).toInt()}kk км²'),
                       ),
                     ),
                   ),
@@ -1250,8 +1331,8 @@ Widget _buildLegendItem(String text, Color color) {
 
   Widget _buildPairPlotChart(PopulationLoaded state) {
     // Выбираем страны для сравнения (можно сделать выбор пользователем)
-    final selectedCountries = ['China', 'India', 'United States', 'Russia', 'Germany', 'Italy'];
-    
+    final selectedCountries = ['China', 'India', 'United States', 'Russia', 'Germany', 'Italy', 'Belarus', 'Brazil', 'Canada', 
+    'Chile', 'Denmark', 'Egypt', 'Estonia', 'France', 'Guinea', 'Japan', 'Kazakhstan', 'Latvia', 'Madagascar'];
     final pairPlotData = _preparePairPlotData(state.data, selectedCountries);
     
     return Card(
@@ -1315,7 +1396,7 @@ Widget _buildLegendItem(String text, Color color) {
           width: 800, // Ширина для всех диаграмм
           child: GridView.builder(
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3, // 2 колонки
+              crossAxisCount: 4, // 2 колонки
               crossAxisSpacing: 16,
               mainAxisSpacing: 16,
               childAspectRatio: 1.2,
